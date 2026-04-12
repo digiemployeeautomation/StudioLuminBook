@@ -961,7 +961,6 @@ export default function App() {
   const [page, setPage] = useState('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [branchId, setBranchId] = useState(null)
-  const [branches, setBranches] = useState([])
   const [ownedBranches, setOwnedBranches] = useState([])
   const [needsOnboarding, setNeedsOnboarding] = useState(false)
   const [branch, setBranch] = useState(null)
@@ -1008,7 +1007,8 @@ export default function App() {
   useEffect(() => {
     if (!authChecked) return
     if (authUser) {
-      supabase.from('branches').select('id, name, owner_email, is_active, approval_status').then(({ data }) => {
+      supabase.from('branches').select('id, name, owner_email, is_active, approval_status').then(({ data, error }) => {
+        if (error) { console.error('Branch fetch error:', error); showToast('Could not load branches. Please refresh.', 'error'); return }
         const userEmail = (authUser.email || '').toLowerCase()
         const owned = (data || []).filter(b => (b.owner_email || '').toLowerCase() === userEmail)
         setOwnedBranches(owned)
@@ -1018,6 +1018,9 @@ export default function App() {
         } else {
           setNeedsOnboarding(true)
         }
+      }).catch(err => {
+        console.error('Branch fetch error:', err)
+        showToast('Could not load branches. Please refresh.', 'error')
       })
     }
   }, [authChecked, authUser])
@@ -1040,13 +1043,12 @@ export default function App() {
       sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
       const sixMonthsAgoStr = sixMonthsAgo.toISOString().slice(0, 10)
 
-      const [branchRes, bookingRes, staffRes, serviceRes, reviewRes, branchesRes, blockedRes, waitlistRes, addonsRes] = await Promise.all([
+      const [branchRes, bookingRes, staffRes, serviceRes, reviewRes, blockedRes, waitlistRes, addonsRes] = await Promise.all([
         supabase.from('branches').select('*').eq('id', branchId).single(),
         supabase.from('bookings').select('*').eq('branch_id', branchId).gte('booking_date', sixMonthsAgoStr).order('booking_date', { ascending: false }).limit(500),
         supabase.from('staff').select('*').eq('branch_id', branchId).order('name'),
         supabase.from('services').select('*').eq('branch_id', branchId).order('category, name'),
         supabase.from('reviews').select('*').eq('branch_id', branchId).order('created_at', { ascending: false }),
-        supabase.from('branches').select('id, name'),
         supabase.from('staff_blocked_times').select('*').eq('branch_id', branchId).gte('block_date', todayStr()).order('block_date'),
         supabase.from('waitlist').select('*').eq('branch_id', branchId).eq('status', 'waiting').order('preferred_date'),
         supabase.from('service_addons').select('*').eq('branch_id', branchId),
@@ -1054,7 +1056,6 @@ export default function App() {
       const bkData = bookingRes.data || []
       setBranch(branchRes.data); setBookings(bkData); setStaff(staffRes.data || [])
       setServices(serviceRes.data || []); setReviews(reviewRes.data || [])
-      setBranches(branchesRes.data || [])
       setBlockedTimes(blockedRes.data || []); setWaitlist(waitlistRes.data || [])
       setServiceAddons(addonsRes.data || [])
 
@@ -1066,7 +1067,8 @@ export default function App() {
         let allClients = []
         for (let i = 0; i < clientIds.length; i += batchSize) {
           const batch = clientIds.slice(i, i + batchSize)
-          const { data } = await supabase.from('clients').select('*').in('id', batch)
+          const { data, error: batchErr } = await supabase.from('clients').select('*').in('id', batch)
+          if (batchErr) { console.error('Client batch error:', batchErr); continue }
           if (data) allClients = allClients.concat(data)
         }
         setClients(allClients)
@@ -1156,8 +1158,13 @@ export default function App() {
     showToast('Service status updated'); fetchAll()
   }
   const deleteService = async (id) => {
-    await supabase.from('bookings').update({ service_id: null }).eq('service_id', id).in('status', ['cancelled', 'completed', 'no_show'])
-    await supabase.from('service_addons').delete().eq('service_id', id)
+    const { count, error: checkErr } = await supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('service_id', id).in('status', ['pending', 'confirmed', 'in_progress'])
+    if (checkErr) { showToast(friendlyError(checkErr.message), 'error'); return }
+    if (count > 0) { showToast('Cannot delete: service has active bookings. Cancel or complete them first.', 'error'); return }
+    const { error: e1 } = await supabase.from('bookings').update({ service_id: null }).eq('service_id', id).in('status', ['cancelled', 'completed', 'no_show'])
+    if (e1) { showToast(friendlyError(e1.message), 'error'); return }
+    const { error: e2 } = await supabase.from('service_addons').delete().eq('service_id', id)
+    if (e2) { showToast(friendlyError(e2.message), 'error'); return }
     const { error } = await supabase.from('services').delete().eq('id', id)
     if (error) { showToast(friendlyError(error.message), 'error'); return }
     showToast('Service deleted'); fetchAll()
@@ -2368,7 +2375,7 @@ tr { transition: background .15s ease; } tr:hover { background: ${C.bg}; }
             </div>
             <div style={{ padding: '0 12px', marginBottom: 12 }}>
               <select value={branchId} onChange={e => setBranchId(e.target.value)} style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: C.sidebarHover, color: '#fff', fontSize: 13, fontFamily: 'DM Sans', cursor: 'pointer', outline: 'none', minHeight: 44 }}>
-                {(ownedBranches.length ? ownedBranches : branches).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                {ownedBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
               </select>
             </div>
             <nav style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
@@ -2390,7 +2397,7 @@ tr { transition: background .15s ease; } tr:hover { background: ${C.bg}; }
           </div>
           <div style={{ padding: '0 12px', marginBottom: 20 }}>
             <select value={branchId} onChange={e => setBranchId(e.target.value)} style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: C.sidebarHover, color: '#fff', fontSize: 12, fontFamily: 'DM Sans', cursor: 'pointer', outline: 'none' }}>
-              {(ownedBranches.length ? ownedBranches : branches).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              {ownedBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
           <nav style={{ flex: 1 }}>
