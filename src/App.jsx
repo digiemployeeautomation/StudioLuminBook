@@ -890,8 +890,8 @@ function StudioOnboarding({ authUser, onComplete, onLogout }) {
       close_time: form.close_time,
       slot_interval: form.slot_interval,
       owner_email: authUser.email.toLowerCase(),
-      is_active: false,
-      approval_status: 'pending',
+      is_active: true,
+      approval_status: 'approved',
       cancellation_hours: 2,
       cancellation_fee_percent: 0,
       created_at: new Date().toISOString(),
@@ -1213,7 +1213,6 @@ export default function App() {
   const sendReviewRequest = (bookingId) => sendSMSAction('send_review_request', { booking_id: bookingId })
 
   // ═════ DASHBOARD ═════
-  const isPendingApproval = branch && (branch.approval_status === 'pending' || (!branch.is_active && branch.approval_status !== 'approved'))
 
   function DashboardView() {
     const todayNoShows = bookings.filter(b => b.booking_date === todayStr() && b.status === 'no_show').length
@@ -1227,15 +1226,6 @@ export default function App() {
     ]
     return (
       <div>
-        {isPendingApproval && (
-          <div style={{ background: '#fff8e1', border: '1px solid #ffe082', borderRadius: 14, padding: '16px 20px', marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center' }}>
-            <Icon name="alert" size={22} color="#f9a825" />
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#e65100' }}>Studio Pending Approval</div>
-              <div style={{ fontSize: 13, color: '#795548', lineHeight: 1.5 }}>Your studio is being reviewed by the LuminBook team. You can set up your services, staff, and profile while you wait. Clients will find and book you once approved.</div>
-            </div>
-          </div>
-        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
           {stats.map((s, i) => (
             <div key={i} style={{ background: C.card, borderRadius: 14, border: `1px solid ${C.border}`, padding: '20px 22px', position: 'relative', overflow: 'hidden' }}>
