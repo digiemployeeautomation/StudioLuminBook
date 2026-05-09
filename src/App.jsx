@@ -881,6 +881,7 @@ function StudioOnboarding({ authUser, onComplete, onLogout }) {
 
   const handleCreate = async () => {
     if (!form.name.trim()) return setError('Studio name is required')
+    if (!form.phone.trim()) return setError('Studio phone is required — admin will use this to forward booking confirmations')
     setSubmitting(true); setError('')
     const { data, error: err } = await supabase.from('branches').insert({
       name: form.name.trim(),
